@@ -32,6 +32,7 @@
     <PlatformToolset>v141</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
     <UseOfMfc>Dynamic</UseOfMfc>
+    <SpectreMitigation>false</SpectreMitigation>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
@@ -97,6 +98,10 @@
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
+      <StackReserveSize>
+      </StackReserveSize>
+      <StackCommitSize>
+      </StackCommitSize>
     </Link>
     <Midl>
       <MkTypLibCompatible>false</MkTypLibCompatible>
@@ -187,7 +192,12 @@
     </ResourceCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="CAttach.h" />
+    <ClInclude Include="ClistCtrlEx.h" />
+    <ClInclude Include="ConditionBreakDlg.h" />
     <ClInclude Include="framework.h" />
+    <ClInclude Include="GotoMemDlg.h" />
+    <ClInclude Include="MyHead.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="Resource.h" />
     <ClInclude Include="targetver.h" />
@@ -195,6 +205,10 @@
     <ClInclude Include="XB32_DbgDlg.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="CAttach.cpp" />
+    <ClCompile Include="ClistCtrlEx.cpp" />
+    <ClCompile Include="ConditionBreakDlg.cpp" />
+    <ClCompile Include="GotoMemDlg.cpp" />
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>

@@ -33,6 +33,21 @@
     <ClInclude Include="pch.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="CAttach.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="ClistCtrlEx.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="ConditionBreakDlg.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="MyHead.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="GotoMemDlg.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="XB32_Dbg.cpp">
@@ -42,6 +57,18 @@
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="pch.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="CAttach.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="ClistCtrlEx.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="ConditionBreakDlg.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="GotoMemDlg.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>
