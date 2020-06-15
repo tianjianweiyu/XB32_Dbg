@@ -48,6 +48,24 @@
     <ClInclude Include="GotoMemDlg.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="EditAsmDlg.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="EditRegDlg.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="EditMemoryDlg.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="GoToAsmDlg.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="ModuleDlg.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="TableDlg.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="XB32_Dbg.cpp">
@@ -69,6 +87,24 @@
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="GotoMemDlg.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="EditAsmDlg.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="EditRegDlg.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="EditMemoryDlg.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="GoToAsmDlg.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="ModuleDlg.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="TableDlg.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>

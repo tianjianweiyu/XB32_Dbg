@@ -13,6 +13,12 @@
 #include <TlHelp32.h>
 #include "ConditionBreakDlg.h"
 #include "GotoMemDlg.h"
+#include "EditAsmDlg.h"
+#include "EditRegDlg.h"
+#include "EditMemoryDlg.h"
+#include "GoToAsmDlg.h"
+#include "ModuleDlg.h"
+#include "TableDlg.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -38,8 +44,37 @@ CONDITION g_RecvCondition = {};
 BOOL g_Ok_Memory = FALSE;
 //当前内存框选定的内存地址
 DWORD g_SendAddress_Memory = 0;
+//当前内存框选定要修改的数据
+CString g_SendBytes_Memory;
+//修改后的数据
+DWORD g_RecvBytes_Memory = 0;
 //要跳转到的内存地址
 DWORD g_RecvAddress_Memory = 0;
+
+//当前反汇编框选定的地址
+DWORD g_SendAddress_Asm = 0;
+//当前反汇编框选定的指令
+CString g_SendAsm_Asm;
+//当前反汇编框选定的指令对应十六进制的长度
+DWORD g_SendBytesNum_Asm = 0;
+//用于接收转换后的Opcode
+BYTE g_RecvBytes_Asm[256]{};
+//用于接收转换后的Opcode的大小(字节)
+DWORD g_RecvBytesNum_Asm = 0;
+//用于判断用户是否确定修改代码
+BOOL g_Ok_Asm = FALSE;
+//要跳转到的内存地址
+DWORD g_RecvAddress_Asm = 0;
+
+//当前寄存器框选定的寄存器的值
+DWORD g_SendValue_Reg = 0;
+//修改后的寄存器的值
+DWORD g_RecvValue_Reg = 0;
+//用于判断用户是否确定修改寄存器的值
+BOOL g_Ok_Reg = FALSE;
+
+//用于接收选中模块的加载地址
+DWORD g_RecvAddress_Module = 0;
 
 //开启断点标志
 BOOL g_OpenBreak = FALSE;
@@ -54,6 +89,7 @@ BOOL g_OpenBreak = FALSE;
 #define BREAK_MEMORY_EXCU 2	//内存执行
 #define BREAK_MEMORY_RW 3	//内存读写
 
+//断点类型，主要用于单步处理时区分
 BOOL g_BreakType = BREAK_SOFT;
 
 // 用于应用程序“关于”菜单项的 CAboutDlg 对话框
@@ -74,6 +110,7 @@ public:
 // 实现
 protected:
 	DECLARE_MESSAGE_MAP()
+
 };
 
 CAboutDlg::CAboutDlg() : CDialogEx(IDD_ABOUTBOX)
@@ -137,6 +174,19 @@ BEGIN_MESSAGE_MAP(CXB32DbgDlg, CDialogEx)
 	ON_COMMAND(ID_32801, &CXB32DbgDlg::OnGotomemory)
 	ON_NOTIFY(NM_RCLICK, IDC_LIST3, &CXB32DbgDlg::OnNMRClickListMemory)
 	ON_NOTIFY(NM_CUSTOMDRAW, IDC_LIST3, &CXB32DbgDlg::OnNMCustomdrawListMemory)
+	ON_NOTIFY(NM_RCLICK, IDC_LIST1, &CXB32DbgDlg::OnNMRClickListAsm)
+	ON_NOTIFY(NM_DBLCLK, IDC_LIST1, &CXB32DbgDlg::OnNMDblclkListAsm)
+	ON_NOTIFY(NM_DBLCLK, IDC_LIST2, &CXB32DbgDlg::OnNMDblclkListReg)
+	ON_NOTIFY(NM_DBLCLK, IDC_LIST3, &CXB32DbgDlg::OnNMDblclkListMemory)
+	ON_NOTIFY(NM_DBLCLK, IDC_LIST4, &CXB32DbgDlg::OnNMDblclkListStack)
+	ON_NOTIFY(NM_RCLICK, IDC_LIST2, &CXB32DbgDlg::OnNMRClickListReg)
+	ON_COMMAND(ID_32802, &CXB32DbgDlg::OnJumpToMemShow)
+	ON_COMMAND(ID_32803, &CXB32DbgDlg::OnJumpToStackShow)
+	ON_COMMAND(ID_32804, &CXB32DbgDlg::OnJumpToAsmShow)
+	ON_COMMAND(ID_32805, &CXB32DbgDlg::OnGotoAsm)
+	ON_COMMAND(ID_32807, &CXB32DbgDlg::OnShowModule)
+	ON_COMMAND(ID_32808, &CXB32DbgDlg::OnShowImportExportedTable)
+	ON_WM_TIMER()
 END_MESSAGE_MAP()
 
 
@@ -211,7 +261,20 @@ LRESULT CALLBACK ListAsmProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 		case VK_F9:
 			g_pDlg->OnRun();
 			break;
+			//空格键-编辑汇编指令
+		case VK_SPACE:
+			g_pDlg->OnChangeasm();
+			break;
 		}
+	}
+	else if (uMsg == WM_CHAR)
+	{
+		//按下G键
+		if (wParam == 0x67)
+		{
+			g_pDlg->OnGotoAsm();
+		}
+
 	}
 
 	return CallWindowProc((WNDPROC)g_AsmListProc, hwnd, uMsg, wParam, lParam);
@@ -731,8 +794,8 @@ DWORD CXB32DbgDlg::DispatchException()
 
 				ShowSingleAsm(context.Eip);
 
-				//打印栈区信息
-				PrintHeap(context);
+				//显示栈区信息
+				ShowStack(context.Esp);
 
 				SetThreadContext(m_ThreadHandle, &context);
 
@@ -796,8 +859,8 @@ DWORD CXB32DbgDlg::DispatchException()
 
 			ShowMemory(g_RecvAddress_Memory);
 
-			//打印栈区信息
-			PrintHeap(context);
+			//显示栈区信息
+			ShowStack(context.Esp);
 
 			//挂起线程
 			SuspendThread(m_ThreadHandle);
@@ -852,8 +915,8 @@ DWORD CXB32DbgDlg::DispatchException()
 					//将所有永久硬件断点处数据修复
 					CloseAllHardBreakPoint();
 
-					//打印栈区信息
-					PrintHeap(context);
+					//显示栈区信息
+					ShowStack(context.Esp);
 
 					ShowSingleAsm(context.Eip);
 
@@ -887,8 +950,8 @@ DWORD CXB32DbgDlg::DispatchException()
 				//显示寄存器信息
 				ShowContext(context);
 
-				//打印栈区信息
-				PrintHeap(context);
+				//显示栈区信息
+				ShowStack(context.Esp);
 
 				ShowSingleAsm(context.Eip);
 
@@ -909,8 +972,8 @@ DWORD CXB32DbgDlg::DispatchException()
 						//显示寄存器信息
 						ShowContext(context);
 
-						//打印栈区信息
-						PrintHeap(context);
+						//显示栈区信息
+						ShowStack(context.Esp);
 
 						ShowSingleAsm(context.Eip);
 
@@ -933,8 +996,8 @@ DWORD CXB32DbgDlg::DispatchException()
 					//显示寄存器信息
 					ShowContext(context);
 
-					//打印栈区信息
-					PrintHeap(context);
+					//显示栈区信息
+					ShowStack(context.Esp);
 
 					ShowSingleAsm(context.Eip);
 
@@ -955,8 +1018,8 @@ DWORD CXB32DbgDlg::DispatchException()
 						//显示寄存器信息
 						ShowContext(context);
 
-						//打印栈区信息
-						PrintHeap(context);
+						//显示栈区信息
+						ShowStack(context.Esp);
 
 						ShowSingleAsm(context.Eip);
 
@@ -977,8 +1040,8 @@ DWORD CXB32DbgDlg::DispatchException()
 					//显示寄存器信息
 					ShowContext(context);
 
-					//打印栈区信息
-					PrintHeap(context);
+					//显示栈区信息
+					ShowStack(context.Esp);
 
 					ShowSingleAsm(context.Eip);
 
@@ -1053,8 +1116,8 @@ DWORD CXB32DbgDlg::DispatchException()
 				//显示寄存器信息
 				ShowContext(context);
 
-				//打印栈区信息
-				PrintHeap(context);
+				//显示栈区信息
+				ShowStack(context.Esp);
 
 				ShowSingleAsm(context.Eip);
 
@@ -1105,6 +1168,9 @@ DWORD CXB32DbgDlg::DispatchEvent()
 	//进程创建事件
 	case CREATE_PROCESS_DEBUG_EVENT:
 	{
+
+		SetTimer(TABLECLOCK, 1000, NULL);
+
 		//如果不是附加进程，是创建进程
 		if (m_nPid == 0)
 		{
@@ -1119,6 +1185,7 @@ DWORD CXB32DbgDlg::DispatchEvent()
 		}
 		resContinueStaus = DBG_CONTINUE;
 		break;
+
 	}
 	default:
 	{
@@ -1204,11 +1271,15 @@ BOOL CXB32DbgDlg::OnInitDialog()
 
 	// TODO: 在此添加额外的初始化代码
 
+	//提权
+	MyRtlAdjustPrivilege();
+
 	g_pDlg = this;
 
 	//加载菜单
-	m_Menu.LoadMenu(IDR_MENU1);
-	SetMenu(&m_Menu);
+	m_Menu_Main.LoadMenu(IDR_MENU1);
+	SetMenu(&m_Menu_Main);
+	m_Menu_Secondary.LoadMenu(IDR_MENU2);
 
 	//设置List控件属性
 	SetListAttr();
@@ -1267,6 +1338,16 @@ HCURSOR CXB32DbgDlg::OnQueryDragIcon()
 	return static_cast<HCURSOR>(m_hIcon);
 }
 
+VOID CXB32DbgDlg::MyRtlAdjustPrivilege()
+{
+	const unsigned int SE_DEBUG_PRIVILEGE = 0x14;
+	int nAddress = 0;
+	typedef int(WINAPI*RtlAdjustPrivilege)(int, bool, bool, int*);
+	HMODULE module = LoadLibrary(TEXT("ntdll.dll"));
+	RtlAdjustPrivilege pRt = (RtlAdjustPrivilege)GetProcAddress(module, "RtlAdjustPrivilege");
+	pRt(SE_DEBUG_PRIVILEGE, TRUE, FALSE, &nAddress);
+	FreeLibrary(module);
+}
 
 //文件->打开按钮
 void CXB32DbgDlg::OnCreateProcess()
@@ -1343,9 +1424,10 @@ BOOL CXB32DbgDlg::Open(const TCHAR* pszFile)
 	winText.Format(L"%s - %s", pszFile, L"调试进程");
 	SetWindowText(winText);
 
-	//保存进程/线程句柄
+	//保存进程/线程句柄,进程PID
 	m_ProcessHandle = stcProcInfo.hProcess;
 	m_ThreadHandle = stcProcInfo.hThread;
+	m_Pid = stcProcInfo.dwProcessId;
 
 	return TRUE;
 
@@ -2008,10 +2090,22 @@ VOID CXB32DbgDlg::WriteMemoryByte(DWORD nAddress, BYTE nValue)
 	DWORD nWriteSize;
 	//修改页属性为可读可写可执行
 	VirtualProtectEx(m_ProcessHandle, (LPVOID)nAddress, 1, PAGE_EXECUTE_READWRITE, &nOldProtect);
-	//将0xCC该为原数据
+	//修改数据
 	WriteProcessMemory(m_ProcessHandle, (LPVOID)nAddress, &nValue, 1, &nWriteSize);
 	//恢复页属性
 	VirtualProtectEx(m_ProcessHandle, (LPVOID)nAddress, 1, nOldProtect, &nOldProtect);
+}
+
+VOID CXB32DbgDlg::WriteMemoryBytes(DWORD nAddress, LPBYTE nValue, DWORD nLen)
+{
+	DWORD nOldProtect;
+	DWORD nWriteSize;
+	//修改页属性为可读可写可执行
+	VirtualProtectEx(m_ProcessHandle, (LPVOID)nAddress, nLen, PAGE_EXECUTE_READWRITE, &nOldProtect);
+	//修改数据
+	WriteProcessMemory(m_ProcessHandle, (LPVOID)nAddress, nValue, nLen, &nWriteSize);
+	//恢复页属性
+	VirtualProtectEx(m_ProcessHandle, (LPVOID)nAddress, nLen, nOldProtect, &nOldProtect);
 }
 
 //处理寄存器框高亮
@@ -2319,16 +2413,16 @@ DWORD CXB32DbgDlg::FindAddress(DWORD nShowAddress)
 	return -1;
 }
 
-VOID CXB32DbgDlg::PrintHeap(CONTEXT nCONTEXT)
+VOID CXB32DbgDlg::ShowStack(DWORD nShowAddress)
 {
 
 	DWORD nReadData;
 	CString nShowData;
 	for (DWORD i = 0; i < m_Num_Stack; i++)
 	{
-		nShowData.Format(TEXT("%08X+%X"), nCONTEXT.Esp, (i * 4));
+		nShowData.Format(TEXT("%08X+%X"), nShowAddress, (i * 4));
 		m_list_stack.SetItemText(i, m_Flag_StackAddress, nShowData);
-		ReadMemoryBytes(nCONTEXT.Esp + (i * 4), (LPBYTE)&nReadData,4);
+		ReadMemoryBytes(nShowAddress + (i * 4), (LPBYTE)&nReadData,4);
 		nShowData.Format(TEXT("%08X"), nReadData);
 		m_list_stack.SetItemText(i, m_Flag_StackData, nShowData);
 	}
@@ -2877,6 +2971,228 @@ VOID CXB32DbgDlg::SetMemoryReadWriteProc(DWORD nType)
 
 }
 
+void CXB32DbgDlg::OnChangeasm()
+{
+	//获取选中的行数
+	DWORD nItem = m_list_asm.GetSelectionItem();
+	CString nAddress;
+	CString nOpcode;
+	//根据行数获取对应的地址与十六进制数据
+	nOpcode = m_list_asm.GetItemText(nItem, m_Flag_Opcode);
+	nAddress = m_list_asm.GetItemText(nItem, m_Flag_Address);
+	//地址进行转换
+	_stscanf_s(nAddress, TEXT("%X"), &g_SendAddress_Asm);
+
+	//获取对应的汇编指令
+	g_SendAsm_Asm = m_list_asm.GetItemText(nItem, m_Flag_Asm);
+	//获取汇编指令对应十六进制的长度
+	g_SendBytesNum_Asm = nOpcode.Replace(TEXT(" "), TEXT(" "));
+
+	g_Ok_Asm = FALSE;
+	EditAsmDlg nEditAsmDlg;
+	nEditAsmDlg.DoModal();
+	//如果用户没有点击确定按钮，就直接返回
+	if (!g_Ok_Asm)return;
+
+	if (g_RecvBytesNum_Asm)
+	{
+		CString nTemp;
+		CString nTempBytes;
+
+		for (DWORD i = 0; i < g_RecvBytesNum_Asm; i++)
+		{
+			nTemp.Format(TEXT("%02X "), g_RecvBytes_Asm[i]);
+			nTempBytes = nTempBytes + nTemp;
+		}
+
+		//将要修改的指令写入到目标进程中
+		WriteMemoryBytes(g_SendAddress_Asm, g_RecvBytes_Asm, g_RecvBytesNum_Asm);
+
+		InitAsm(nReadAddressFirst);
+
+	}
+}
+
+VOID CXB32DbgDlg::OnChangeReg()
+{
+	//获取选中的行数
+	DWORD nItem = m_list_reg.GetSelectionItem();
+	CString regName;
+	CString regValue;
+
+	TCHAR* regNames[17] = { _T("EAX"),_T("EBX"),_T("ECX"),_T("EDX"),_T("EBP"),_T("ESP"),_T("ESI"),_T("EDI"),
+		_T("CF"),_T("PF"),_T("AF"),_T("ZF"),_T("SF"),_T("TF"),_T("DF"),_T("OF") ,_T("Eflags") };
+
+	//根据行数获取对应的寄存器名与值
+	regName = m_list_reg.GetItemText(nItem, 0);
+	regValue = m_list_reg.GetItemText(nItem, 1);
+
+	_stscanf_s(regValue, TEXT("%X"), &g_SendValue_Reg);
+
+	//获取线程上下文环境
+	CONTEXT nContext{};
+	nContext.ContextFlags = CONTEXT_FULL | CONTEXT_DEBUG_REGISTERS;
+	GetThreadContext(m_ThreadHandle, &nContext);
+
+	PEFLAGS eflags = (PEFLAGS)&nContext.EFlags;
+
+	for (DWORD i = 0; i < 17; i++)
+	{
+		//如果是可以修改的寄存器
+		if (!regName.Compare(regNames[i]))
+		{
+			switch (i)
+			{
+			case 0:case 1:case 2:case 3:case 4:case 5:case 6:case 7:case 16:
+			{
+				g_Ok_Reg = FALSE;
+				EditRegDlg nEditRegDlg;
+				nEditRegDlg.DoModal();
+				if (!g_Ok_Reg)return;
+
+				switch (i)
+				{
+				case 0:
+					nContext.Eax = g_RecvValue_Reg;
+					break;
+				case 1:
+					nContext.Ebx = g_RecvValue_Reg;
+					break;
+				case 2:
+					nContext.Ecx = g_RecvValue_Reg;
+					break;
+				case 3:
+					nContext.Edx = g_RecvValue_Reg;
+					break;
+				case 4:
+					nContext.Ebp = g_RecvValue_Reg;
+					break;
+				case 5:
+					nContext.Esp = g_RecvValue_Reg;
+					break;
+				case 6:
+					nContext.Esi = g_RecvValue_Reg;
+					break;
+				case 7:
+					nContext.Edi = g_RecvValue_Reg;
+					break;
+				case 16:
+					nContext.EFlags = g_RecvValue_Reg;
+					break;
+				}
+				regValue.Format(_T("%08X"), g_RecvValue_Reg);
+				m_list_reg.SetItemText(nItem, 1, regValue);
+
+				break;
+			}
+
+				//CF
+			case 8:
+				eflags->CF = !eflags->CF;
+				regValue.Format(_T("%d"), eflags->CF);
+				m_list_reg.SetItemText(nItem, 1, regValue);
+				regValue.Format(_T("%08X"), nContext.EFlags);
+				m_list_reg.SetItemText(26, 1, regValue);
+				break;
+				//PF
+			case 9:
+				eflags->PF = !eflags->PF;
+				regValue.Format(_T("%d"), eflags->PF);
+				m_list_reg.SetItemText(nItem, 1, regValue);
+				regValue.Format(_T("%08X"), nContext.EFlags);
+				m_list_reg.SetItemText(26, 1, regValue);
+				break;
+				//AF
+			case 10:
+				eflags->AF = !eflags->AF;
+				regValue.Format(_T("%d"), eflags->AF);
+				m_list_reg.SetItemText(nItem, 1, regValue);
+				regValue.Format(_T("%08X"), nContext.EFlags);
+				m_list_reg.SetItemText(26, 1, regValue);
+				break;
+				//ZF
+			case 11:
+				eflags->ZF = !eflags->ZF;
+				regValue.Format(_T("%d"), eflags->ZF);
+				m_list_reg.SetItemText(nItem, 1, regValue);
+				regValue.Format(_T("%08X"), nContext.EFlags);
+				m_list_reg.SetItemText(26, 1, regValue);
+				break;
+				//SF
+			case 12:
+				eflags->SF = !eflags->SF;
+				regValue.Format(_T("%d"), eflags->SF);
+				m_list_reg.SetItemText(nItem, 1, regValue);
+				regValue.Format(_T("%08X"), nContext.EFlags);
+				m_list_reg.SetItemText(26, 1, regValue);
+				break;
+				//TF
+			case 13:
+				eflags->TF = !eflags->TF;
+				regValue.Format(_T("%d"), eflags->TF);
+				m_list_reg.SetItemText(nItem, 1, regValue);
+				regValue.Format(_T("%08X"), nContext.EFlags);
+				m_list_reg.SetItemText(26, 1, regValue);
+				break;
+				//DF
+			case 14:
+				eflags->DF = !eflags->DF;
+				regValue.Format(_T("%d"), eflags->DF);
+				m_list_reg.SetItemText(nItem, 1, regValue);
+				regValue.Format(_T("%08X"), nContext.EFlags);
+				m_list_reg.SetItemText(26, 1, regValue);
+				break;
+				//OF
+			case 15:
+				eflags->OF = !eflags->OF;
+				regValue.Format(_T("%d"), eflags->OF);
+				m_list_reg.SetItemText(nItem, 1, regValue);
+				regValue.Format(_T("%08X"), nContext.EFlags);
+				m_list_reg.SetItemText(26, 1, regValue);
+				break;
+			}
+			break;
+		}
+	}
+
+	//设置线程上下文环境
+	SetThreadContext(m_ThreadHandle, &nContext);
+}
+
+VOID CXB32DbgDlg::EditMemoryProc(DWORD nItem, DWORD nSubItem)
+{
+
+	CString szAddress;
+	DWORD dwAddress;
+	DWORD dwByte;
+	//获取选定要修改的地址
+	szAddress = m_list_mem.GetItemText(nItem, m_Flag_MemAddress);
+	_stscanf_s(szAddress, TEXT("%X"), &g_SendAddress_Memory);
+	g_SendAddress_Memory = g_SendAddress_Memory + nSubItem - 1;
+
+	//获取要修改的数据
+	g_SendBytes_Memory = m_list_mem.GetItemText(nItem, nSubItem);
+	//g_SendBytes_Memory.Replace(TEXT(" "), TEXT(""));
+
+	g_Ok_Memory = FALSE;
+	EditMemoryDlg nEditMemoryDlg;
+	nEditMemoryDlg.DoModal();
+	if (!g_Ok_Memory)return;
+
+	_stscanf_s(g_SendBytes_Memory, TEXT("%02X"), &dwByte);
+
+	//如果修改前和修改后一样，直接返回
+	if (dwByte == g_RecvBytes_Memory)return;
+
+	WriteMemoryByte(g_SendAddress_Memory, (BYTE)g_RecvBytes_Memory);
+
+	szAddress = m_list_mem.GetItemText(0, m_Flag_MemAddress);
+	_stscanf_s(szAddress, TEXT("%X"), &dwAddress);
+
+	//重新显示内存数据
+	ShowMemory(dwAddress);
+}
+
 //步入
 void CXB32DbgDlg::OnIn()
 {
@@ -3279,7 +3595,7 @@ void CXB32DbgDlg::OnMemoryRead()
 	SetMemoryReadWriteProc(0);
 }
 
-//跳转到指定地址
+//跳转到指定地址(内存窗口)
 void CXB32DbgDlg::OnGotomemory()
 {
 	// TODO: 在此添加命令处理程序代码
@@ -3312,7 +3628,7 @@ void CXB32DbgDlg::OnNMRClickListMemory(NMHDR *pNMHDR, LRESULT *pResult)
 
 	if (nItem == -1)return;
 
-	CMenu *nMenu = m_Menu.GetSubMenu(2);
+	CMenu *nMenu = m_Menu_Main.GetSubMenu(2);
 	POINT pos;
 	GetCursorPos(&pos);
 
@@ -3381,4 +3697,267 @@ void CXB32DbgDlg::OnNMCustomdrawListMemory(NMHDR *pNMHDR, LRESULT *pResult)
 	*pResult = 0;
 	*pResult |= CDRF_NOTIFYPOSTPAINT;		//必须有，不然就没有效果
 	*pResult |= CDRF_NOTIFYITEMDRAW;		//必须有，不然就没有效果}
+}
+
+//汇编框单击右键
+void CXB32DbgDlg::OnNMRClickListAsm(NMHDR *pNMHDR, LRESULT *pResult)
+{
+	LPNMITEMACTIVATE pNMItemActivate = reinterpret_cast<LPNMITEMACTIVATE>(pNMHDR);
+	// TODO: 在此添加控件通知处理程序代码
+	*pResult = 0;
+
+	//获取单击选择的行数列数
+	DWORD nItem = pNMItemActivate->iItem;
+	DWORD nSubItem = pNMItemActivate->iSubItem;
+
+	if (nItem == -1)return;
+
+	CMenu *nMenu = m_Menu_Main.GetSubMenu(1);
+	POINT pos;
+	GetCursorPos(&pos);
+	nMenu->TrackPopupMenu(TPM_LEFTALIGN, pos.x, pos.y, this);
+}
+
+//汇编框双击左键
+void CXB32DbgDlg::OnNMDblclkListAsm(NMHDR *pNMHDR, LRESULT *pResult)
+{
+	LPNMITEMACTIVATE pNMItemActivate = reinterpret_cast<LPNMITEMACTIVATE>(pNMHDR);
+	// TODO: 在此添加控件通知处理程序代码
+	*pResult = 0;
+
+	if (pNMItemActivate->iItem == -1 ||
+		(pNMItemActivate->iSubItem != m_Flag_Asm))return;
+
+	//修改ASM代码
+	OnChangeasm();
+}
+
+//寄存器框双击左键
+void CXB32DbgDlg::OnNMDblclkListReg(NMHDR *pNMHDR, LRESULT *pResult)
+{
+	LPNMITEMACTIVATE pNMItemActivate = reinterpret_cast<LPNMITEMACTIVATE>(pNMHDR);
+	// TODO: 在此添加控件通知处理程序代码
+	*pResult = 0;
+
+	if (pNMItemActivate->iItem == -1 ||
+		(pNMItemActivate->iSubItem != 1))return;
+
+
+	//修改寄存器的值
+	OnChangeReg();
+
+}
+
+//内存框双击左键
+void CXB32DbgDlg::OnNMDblclkListMemory(NMHDR *pNMHDR, LRESULT *pResult)
+{
+	LPNMITEMACTIVATE pNMItemActivate = reinterpret_cast<LPNMITEMACTIVATE>(pNMHDR);
+	// TODO: 在此添加控件通知处理程序代码
+	*pResult = 0;
+
+	//获取选定的数据所在列表的行和列
+	DWORD nItem = pNMItemActivate->iItem;
+	DWORD nSubItem = pNMItemActivate->iSubItem;
+
+	if (nItem == -1 || nSubItem == m_Flag_MemAddress || nSubItem == m_Flag_MemStr)return;
+
+	//修改数据
+	EditMemoryProc(nItem, nSubItem);
+}
+
+//堆栈框双击左键
+void CXB32DbgDlg::OnNMDblclkListStack(NMHDR *pNMHDR, LRESULT *pResult)
+{
+	LPNMITEMACTIVATE pNMItemActivate = reinterpret_cast<LPNMITEMACTIVATE>(pNMHDR);
+	// TODO: 在此添加控件通知处理程序代码
+	*pResult = 0;
+
+	//获取选定的数据所在列表的行和列
+	DWORD nItem = pNMItemActivate->iItem;
+	DWORD nSubItem = pNMItemActivate->iSubItem;
+
+	//选中无效区域直接返回
+	if (nItem == -1)return;
+
+	CString nTemp;
+	DWORD nReadAddress;
+	DWORD nReadOffset;
+
+	//如果选中的是地址栏
+	if (nSubItem == m_Flag_StackAddress)
+	{
+		//获取地址
+		nTemp = m_list_stack.GetItemText(nItem, m_Flag_StackAddress);
+		_stscanf_s(nTemp, TEXT("%X+%X"), &nReadAddress, &nReadOffset);
+
+		//根据地址重新显示内存数据
+		ShowMemory(nReadAddress + nReadOffset);
+		m_list_mem.SetFocus();
+		m_list_mem.SetSelectionEx(0);
+	}
+	//如果选中的是数据栏
+	else if (nSubItem == m_Flag_StackData)
+	{
+		//获取数据
+		nTemp = m_list_stack.GetItemText(nItem, m_Flag_StackData);
+		//如果数据为空，直接返回
+		if (nTemp.IsEmpty())return;
+
+		//将数据转换为十六进制
+		_stscanf_s(nTemp, TEXT("%X"), &nReadAddress);
+
+		//将数据作为地址重新显示汇编框数据
+		InitAsm(nReadAddress);
+		m_list_asm.SetFocus();
+		m_list_asm.SetSelectionEx(0);
+	}
+}
+
+//寄存器框单击右键
+void CXB32DbgDlg::OnNMRClickListReg(NMHDR *pNMHDR, LRESULT *pResult)
+{
+	LPNMITEMACTIVATE pNMItemActivate = reinterpret_cast<LPNMITEMACTIVATE>(pNMHDR);
+	// TODO: 在此添加控件通知处理程序代码
+	*pResult = 0;
+
+	//获取选定的数据所在列表的行和列
+	DWORD nItem = pNMItemActivate->iItem;
+
+	//如果不是调用寄存器或者EIP就直接返回
+	if (nItem == -1||nItem>8)return;
+
+	CMenu *nMenu = m_Menu_Secondary.GetSubMenu(0);
+	POINT pos;
+	GetCursorPos(&pos);
+	nMenu->TrackPopupMenu(TPM_LEFTALIGN, pos.x, pos.y, this);
+
+}
+
+//在内存窗口中转到
+void CXB32DbgDlg::OnJumpToMemShow()
+{
+	// TODO: 在此添加命令处理程序代码
+
+	DWORD nAddress;
+	CString regValue;
+	DWORD nSelect;
+
+	//获取选中的项所在列表的行数
+	nSelect = m_list_reg.GetSelectionItem();
+	//获取寄存器的值
+	regValue = m_list_reg.GetItemText(nSelect, 1);
+	//将寄存器的值转换为十六进制，作为要转到的地址
+	_stscanf_s(regValue, TEXT("%08X"), &nAddress);
+
+	//根据地址重新显示内存数据
+	ShowMemory(nAddress);
+	m_list_mem.SetFocus();
+	m_list_mem.SetSelectionEx(0);
+}
+
+//在栈中转到
+void CXB32DbgDlg::OnJumpToStackShow()
+{
+	// TODO: 在此添加命令处理程序代码
+
+	DWORD nAddress;
+	CString regValue;
+	DWORD nSelect;
+
+	//获取选中的项所在列表的行数
+	nSelect = m_list_reg.GetSelectionItem();
+	//获取寄存器的值
+	regValue = m_list_reg.GetItemText(nSelect, 1);
+	//将寄存器的值转换为十六进制，作为要转到的地址
+	_stscanf_s(regValue, TEXT("%08X"), &nAddress);
+
+	//显示栈区信息
+	ShowStack(nAddress);
+	m_list_stack.SetFocus();
+	m_list_stack.SetSelectionEx(0);
+}
+
+//在反汇编窗口中转到
+void CXB32DbgDlg::OnJumpToAsmShow()
+{
+	// TODO: 在此添加命令处理程序代码
+
+	DWORD nAddress;
+	CString regValue;
+	DWORD nSelect;
+
+	//获取选中的项所在列表的行数
+	nSelect = m_list_reg.GetSelectionItem();
+	//获取寄存器的值
+	regValue = m_list_reg.GetItemText(nSelect, 1);
+	//将寄存器的值转换为十六进制，作为要转到的地址
+	_stscanf_s(regValue, TEXT("%08X"), &nAddress);
+
+	//将数据作为地址重新显示汇编框数据
+	InitAsm(nAddress);
+	m_list_asm.SetFocus();
+	m_list_asm.SetSelectionEx(0);
+}
+
+//跳转到指定地址(返汇编窗口)
+void CXB32DbgDlg::OnGotoAsm()
+{
+	// TODO: 在此添加命令处理程序代码
+
+	DWORD nSelect;
+
+	//获取选中的项所在列表的行数
+	nSelect = m_list_asm.GetSelectionItem();
+
+	//获取当前选定项的地址
+	CString szAddress;
+	szAddress = m_list_asm.GetItemText(nSelect, m_Flag_Address);
+	_stscanf_s(szAddress, TEXT("%X"), &g_SendAddress_Asm);
+
+	g_Ok_Asm = FALSE;
+	GoToAsmDlg nGotoAsmDlg;
+	nGotoAsmDlg.DoModal();
+	if (!g_Ok_Asm)return;
+
+	InitAsm(g_RecvAddress_Asm);
+	m_list_asm.SetFocus();
+	m_list_asm.SetSelectionEx(0);
+}
+
+//查看模块按钮
+void CXB32DbgDlg::OnShowModule()
+{
+	// TODO: 在此添加命令处理程序代码
+
+	ModuleDlg nModuleDlg;
+	nModuleDlg.DoModal();
+
+	if (!g_RecvAddress_Module)return;
+
+	InitAsm(g_RecvAddress_Module);
+	m_list_asm.SetFocus();
+	m_list_asm.SetSelectionEx(0);
+}
+
+//导入导出表按钮
+void CXB32DbgDlg::OnShowImportExportedTable()
+{
+	// TODO: 在此添加命令处理程序代码
+
+	TableDlg *nTableDlg = TableDlg::GetTableDlg();
+	nTableDlg->ShowWindow(TRUE);
+}
+
+
+void CXB32DbgDlg::OnTimer(UINT_PTR nIDEvent)
+{
+	// TODO: 在此添加消息处理程序代码和/或调用默认值
+
+	if (nIDEvent == TABLECLOCK)
+	{
+		SetTimer(nIDEvent, -1, NULL);
+		TableDlg *nTableDlg = TableDlg::GetTableDlg();
+	}
+
+	CDialogEx::OnTimer(nIDEvent);
 }

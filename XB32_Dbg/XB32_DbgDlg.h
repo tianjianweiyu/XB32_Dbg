@@ -169,8 +169,10 @@ public:
 	HANDLE m_ThreadHandle = nullptr;
 	//保存被调试进程的路径
 	CString m_strFilePath;
-	//保存被调试进程的ID
+	//保存被调试进程的ID(用于区别是附加进程还是创建进程)
 	DWORD m_nPid = 0;
+	//保存被调试进程的PID
+	DWORD m_Pid = 0;
 	//用于保存调试事件的结构体
 	DEBUG_EVENT m_dbgEvent = { 0 };
 
@@ -230,7 +232,12 @@ public:
 	DWORD m_nTempSubItem = 0;
 
 	//菜单变量
-	CMenu m_Menu;
+	CMenu m_Menu_Main;
+	CMenu m_Menu_Secondary;
+
+	vector<TABLE> m_Table;
+	//计时器标识符
+	DWORD TABLECLOCK = 0x999;
 
 	afx_msg void OnCreateProcess();
 	afx_msg void OnDebugActiveProcess();
@@ -243,6 +250,13 @@ public:
 
 public:
 
+	/*!
+	*  函 数 名： MyRtlAdjustPrivilege
+	*  日    期： 2020/06/14
+	*  返回类型： VOID
+	*  功    能： 提升权限
+	*/
+	VOID MyRtlAdjustPrivilege();
 
 	/*!
 	*  函 数 名： Open
@@ -518,6 +532,17 @@ public:
 	VOID WriteMemoryByte(DWORD nAddress, BYTE nValue);
 
 	/*!
+	*  函 数 名： WriteMemoryBytes
+	*  日    期： 2020/06/13
+	*  返回类型： VOID
+	*  参    数： DWORD nAddress 要修改数据的地址
+	*  参    数： LPBYTE nValue 修改后的值
+	*  参    数： DWORD nLen 修改数据的长度
+	*  功    能： 修改被被调试进程指定地址指定长度的数据
+	*/
+	VOID WriteMemoryBytes(DWORD nAddress, LPBYTE nValue, DWORD nLen);
+
+	/*!
 	*  函 数 名： SetAllWindowsLong
 	*  日    期： 2020/06/07
 	*  返回类型： VOID
@@ -626,13 +651,13 @@ public:
 	DWORD FindAddress(DWORD nShowAddress);
 
 	/*!
-	*  函 数 名： PrintHeap
-	*  日    期： 2020/06/08
+	*  函 数 名： ShowStack
+	*  日    期： 2020/06/14
 	*  返回类型： VOID
-	*  参    数： CONTEXT nCONTEXT 线程上下文
-	*  功    能： 打印栈区数据
+	*  参    数： DWORD nShowAddress 首地址
+	*  功    能： 显示栈区数据
 	*/
-	VOID PrintHeap(CONTEXT nCONTEXT);
+	VOID ShowStack(DWORD nShowAddress);
 
 	/*!
 	*  函 数 名： IsCallRepAsm
@@ -812,6 +837,32 @@ public:
 	*/
 	VOID SetMemoryReadWriteProc(DWORD nType);
 
+	/*!
+	*  函 数 名： OnChangeasm
+	*  日    期： 2020/06/13
+	*  返回类型： void
+	*  功    能： 修改汇编指令
+	*/
+	void OnChangeasm();
+
+	/*!
+	*  函 数 名： OnChangeReg
+	*  日    期： 2020/06/14
+	*  返回类型： VOID
+	*  功    能： 修改寄存器值
+	*/
+	VOID OnChangeReg();
+
+	/*!
+	*  函 数 名： EditMemoryProc
+	*  日    期： 2020/06/14
+	*  返回类型： VOID
+	*  参    数： DWORD nItem 要修改的数据所在列表中的行
+	*  参    数： DWORD nSubItem 要修改的数据所在列表中的列
+	*  功    能： 修改内存数据
+	*/
+	VOID EditMemoryProc(DWORD nItem, DWORD nSubItem);
+
 	afx_msg void OnIn();
 	afx_msg void OnJump();
 	afx_msg void OnRun();
@@ -831,4 +882,17 @@ public:
 	afx_msg void OnGotomemory();
 	afx_msg void OnNMRClickListMemory(NMHDR *pNMHDR, LRESULT *pResult);
 	afx_msg void OnNMCustomdrawListMemory(NMHDR *pNMHDR, LRESULT *pResult);
+	afx_msg void OnNMRClickListAsm(NMHDR *pNMHDR, LRESULT *pResult);
+	afx_msg void OnNMDblclkListAsm(NMHDR *pNMHDR, LRESULT *pResult);
+	afx_msg void OnNMDblclkListReg(NMHDR *pNMHDR, LRESULT *pResult);
+	afx_msg void OnNMDblclkListMemory(NMHDR *pNMHDR, LRESULT *pResult);
+	afx_msg void OnNMDblclkListStack(NMHDR *pNMHDR, LRESULT *pResult);
+	afx_msg void OnNMRClickListReg(NMHDR *pNMHDR, LRESULT *pResult);
+	afx_msg void OnJumpToMemShow();
+	afx_msg void OnJumpToStackShow();
+	afx_msg void OnJumpToAsmShow();
+	afx_msg void OnGotoAsm();
+	afx_msg void OnShowModule();
+	afx_msg void OnShowImportExportedTable();
+	afx_msg void OnTimer(UINT_PTR nIDEvent);
 };

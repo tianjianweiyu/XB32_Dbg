@@ -195,11 +195,17 @@
     <ClInclude Include="CAttach.h" />
     <ClInclude Include="ClistCtrlEx.h" />
     <ClInclude Include="ConditionBreakDlg.h" />
+    <ClInclude Include="EditAsmDlg.h" />
+    <ClInclude Include="EditMemoryDlg.h" />
+    <ClInclude Include="EditRegDlg.h" />
     <ClInclude Include="framework.h" />
+    <ClInclude Include="GoToAsmDlg.h" />
     <ClInclude Include="GotoMemDlg.h" />
+    <ClInclude Include="ModuleDlg.h" />
     <ClInclude Include="MyHead.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="Resource.h" />
+    <ClInclude Include="TableDlg.h" />
     <ClInclude Include="targetver.h" />
     <ClInclude Include="XB32_Dbg.h" />
     <ClInclude Include="XB32_DbgDlg.h" />
@@ -208,13 +214,19 @@
     <ClCompile Include="CAttach.cpp" />
     <ClCompile Include="ClistCtrlEx.cpp" />
     <ClCompile Include="ConditionBreakDlg.cpp" />
+    <ClCompile Include="EditAsmDlg.cpp" />
+    <ClCompile Include="EditMemoryDlg.cpp" />
+    <ClCompile Include="EditRegDlg.cpp" />
+    <ClCompile Include="GoToAsmDlg.cpp" />
     <ClCompile Include="GotoMemDlg.cpp" />
+    <ClCompile Include="ModuleDlg.cpp" />
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="TableDlg.cpp" />
     <ClCompile Include="XB32_Dbg.cpp" />
     <ClCompile Include="XB32_DbgDlg.cpp" />
   </ItemGroup>
