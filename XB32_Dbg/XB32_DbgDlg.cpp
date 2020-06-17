@@ -20,6 +20,11 @@
 #include "ModuleDlg.h"
 #include "TableDlg.h"
 
+#include <DbgHelp.h>
+#pragma  comment (lib,"DbgHelp.lib")
+
+
+
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #endif
@@ -187,6 +192,9 @@ BEGIN_MESSAGE_MAP(CXB32DbgDlg, CDialogEx)
 	ON_COMMAND(ID_32807, &CXB32DbgDlg::OnShowModule)
 	ON_COMMAND(ID_32808, &CXB32DbgDlg::OnShowImportExportedTable)
 	ON_WM_TIMER()
+	ON_COMMAND(ID_32810, &CXB32DbgDlg::OnAntiNtQueryInformationProcess)
+	ON_COMMAND(ID_32809, &CXB32DbgDlg::OnAntiPeb)
+	ON_WM_INITMENUPOPUP()
 END_MESSAGE_MAP()
 
 
@@ -274,7 +282,16 @@ LRESULT CALLBACK ListAsmProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 		{
 			g_pDlg->OnGotoAsm();
 		}
-
+		//按下M键
+		else if (wParam == 0x6d)
+		{
+			g_pDlg->OnShowModule();
+		}
+		//按下T键
+		else if (wParam == 0x74)
+		{
+			g_pDlg->OnShowImportExportedTable();
+		}
 	}
 
 	return CallWindowProc((WNDPROC)g_AsmListProc, hwnd, uMsg, wParam, lParam);
@@ -1168,8 +1185,16 @@ DWORD CXB32DbgDlg::DispatchEvent()
 	//进程创建事件
 	case CREATE_PROCESS_DEBUG_EVENT:
 	{
+		//载入进程的符号表
+		LoadSymbol(&m_dbgEvent.u.CreateProcessInfo);
 
 		SetTimer(TABLECLOCK, 1000, NULL);
+
+		//反反调试
+		FunDbg();
+
+		//调用插件CreateProcessEvent接口
+		m_LoadPlugin.CallCreateProcessEvent((DWORD)m_dbgEvent.dwProcessId, (DWORD)m_dbgEvent.dwThreadId);
 
 		//如果不是附加进程，是创建进程
 		if (m_nPid == 0)
@@ -1184,8 +1209,16 @@ DWORD CXB32DbgDlg::DispatchEvent()
 			}
 		}
 		resContinueStaus = DBG_CONTINUE;
-		break;
 
+		break;
+	}
+	case CREATE_THREAD_DEBUG_EVENT:
+	{
+		//调用插件CreateThreadEvent接口
+		m_LoadPlugin.CallCreateThreadEvent((DWORD)m_dbgEvent.u.CreateThread.hThread, (DWORD)m_dbgEvent.u.CreateThread.lpThreadLocalBase);
+
+		resContinueStaus = DBG_CONTINUE;
+		break;
 	}
 	default:
 	{
@@ -1280,6 +1313,9 @@ BOOL CXB32DbgDlg::OnInitDialog()
 	m_Menu_Main.LoadMenu(IDR_MENU1);
 	SetMenu(&m_Menu_Main);
 	m_Menu_Secondary.LoadMenu(IDR_MENU2);
+
+	//设置插件菜单名字
+	SetPluginMenu();
 
 	//设置List控件属性
 	SetListAttr();
@@ -1562,6 +1598,33 @@ VOID CXB32DbgDlg::SetListAttr()
 	for (DWORD i = 0; i < m_Num_Memory; i++) m_list_mem.InsertItem(0, TEXT(""));
 }
 
+VOID CXB32DbgDlg::SetPluginMenu()
+{
+	CMenu *nMenu = m_Menu_Main.GetSubMenu(5);
+	for (DWORD i = 0; i < m_LoadPlugin.m_PluginName.size(); i++)
+	{
+		nMenu->AppendMenuW(MF_STRING, 0x1000 + i, m_LoadPlugin.m_PluginName[i]);
+	}
+
+}
+
+BOOL CXB32DbgDlg::LoadSymbol(CREATE_PROCESS_DEBUG_INFO* pInfo) 
+{
+
+	//初始化符号处理器
+	SymInitialize(m_ProcessHandle, NULL, FALSE);
+
+	//载入符号文件
+	SymLoadModule64(m_ProcessHandle, pInfo->hFile, NULL, NULL, (DWORD64)pInfo->lpBaseOfImage, 0);
+
+	IMAGEHLP_MODULE64 nIMAGEHLP_MODULE64{};
+	nIMAGEHLP_MODULE64.SizeOfStruct = sizeof(IMAGEHLP_MODULE64);
+	//获取模块信息
+	SymGetModuleInfo64(m_ProcessHandle, (DWORD64)pInfo->lpBaseOfImage, &nIMAGEHLP_MODULE64);
+
+	return TRUE;
+}
+
 void CXB32DbgDlg::OnSize(UINT nType, int cx, int cy)
 {
 	CDialogEx::OnSize(nType, cx, cy);
@@ -1650,13 +1713,10 @@ VOID CXB32DbgDlg::InitAsm(DWORD nReadAddress)
 
 		PrintBreakFlag((DWORD)disAsm.VirtualAddr, i);
 		nAddr.Format(TEXT("%08X"), disAsm.VirtualAddr);
-		m_list_asm.SetItemText(i, m_Flag_Address, nAddr);
-		//m_list_asm.SetItemText(i, m_Flag_Address_Show, ShowExportName(nAddr));
+		m_list_asm.SetItemText(i, m_Flag_Address, ShowExportName(nAddr));
 		ShowOpcode((BYTE*)disAsm.EIP, nLen, i);
-		USES_CONVERSION;
-		m_list_asm.SetItemText(i, m_Flag_Asm, A2W(disAsm.CompleteInstr));
-		//m_list_asm.SetItemText(i, m_Flag_Asm_Show, ShowAsmName(nAddr, CString(disAsm.CompleteInstr)));
-
+		m_list_asm.SetItemText(i, m_Flag_Asm, ShowAsmName(nAddr, CString(disAsm.CompleteInstr)));
+	
 		disAsm.EIP += nLen;
 		disAsm.VirtualAddr += nLen;
 
@@ -1783,6 +1843,136 @@ VOID CXB32DbgDlg::SetItemColor(DWORD Item, DWORD SubItem, COLORREF TextColor, CO
 		if (!nHava)m_RegColor.push_back({ Item ,SubItem ,TextColor ,BkColor });
 	}
 
+}
+
+CString CXB32DbgDlg::ShowExportName(CString szAddress)
+{
+	DWORD nAddress = 0;
+	DWORD nMinAddress = 0;
+	DWORD nMaxAddress = 0;
+
+	_stscanf_s(szAddress, TEXT("%x"), &nAddress);
+
+	//循环遍历所有模块
+	for (DWORD i = 0; i < m_Table.size(); i++)
+	{
+		//计算出模块的起始地址和结束
+		nMinAddress = m_Table[i].ModuleAddress;
+		nMaxAddress = nMinAddress + m_Table[i].ModuleSize;
+
+		//判断传入的地址是否属于该模块
+		if (nAddress >= nMinAddress && nAddress <= nMaxAddress)
+		{
+			//确定模块后，遍历此模块通过函数名导出的导出函数地址
+			for (DWORD x = 0; x < m_Table[i].ExportFunctionAddress.size(); x++)
+			{
+				//如果导出函数的地址与传入的地址相等
+				if (szAddress == m_Table[i].ExportFunctionAddress[x])
+				{
+					//返回该导出函数的地址所对应的模块名和导出函数名字
+					return CString(szAddress + CString("  ")+ m_Table[i].ExportModuleName + CString(".") + m_Table[i].ExportFunctionName[x]);
+				}
+			}
+
+			break;
+		}
+
+	}
+	return szAddress;
+}
+
+CString CXB32DbgDlg::ShowAsmName(CString szAddress, CString szAsm)
+{
+
+	if (szAsm.GetLength() < 12)return szAsm;
+
+	DWORD nAddress = 0;
+	DWORD nMinAddress = 0;
+	DWORD nMaxAddress = 0;
+
+	//为TRUE时表示要跳转的地址内嵌在汇编指令中
+	//为FALSE时表示要跳转的地址在内存中
+	BOOL BeAanlyAddressFlag = FALSE;
+
+	_stscanf_s(szAddress, TEXT("%x"), &nAddress);
+
+	//如果要跳转的地址是内嵌在汇编指令中，标志为设置为TRUE
+	if (szAsm.Find(TEXT("[")) == -1)
+	{
+		BeAanlyAddressFlag = TRUE;
+	}
+
+	//循环遍历所有模块
+	for (DWORD i = 0; i < m_Table.size(); i++)
+	{
+		//计算出模块的起始地址和结束
+		nMinAddress = m_Table[i].ModuleAddress;
+		nMaxAddress = nMinAddress + m_Table[i].ModuleSize;
+
+		//判断传入的地址是否属于该模块
+		if (nAddress >= nMinAddress && nAddress <= nMaxAddress)
+		{
+			//确定模块后，遍历此模块通过函数名导出的导出函数地址
+			for (DWORD x = 0; x < m_Table[i].ExportFunctionAddress.size(); x++)
+			{
+				//在汇编代码里查找是否有导出函数的地址
+				INT nIndex = szAsm.Find(m_Table[i].ExportFunctionAddress[x]);
+				//查找到了导出函数的地址
+				if (nIndex != -1)
+				{
+					//直接将汇编代码内的地址替换为导入模块名与导出函数名
+					szAsm.Replace(m_Table[i].ExportFunctionAddress[x] + TEXT("h"), m_Table[i].ExportFunctionName[x]);
+
+					m_BeAanlyAddress.push_back({ szAddress, m_Table[i].ExportFunctionAddress[x]
+						,BeAanlyAddressFlag ,m_Table[i].ExportFunctionName[x] });
+
+					return szAsm;
+				}
+			}
+
+			//遍历导入表所有信息
+			for (DWORD x = 0; x < m_Table[i].ImportFunctionAddress.size(); x++)
+			{
+				//在汇编代码里查找是否有导入函数的地址
+				INT nIndex = szAsm.Find(m_Table[i].ImportFunctionAddress[x]);
+				//查找到了导入函数的地址
+				if (nIndex != -1)
+				{
+					//直接将汇编代码内的地址替换为导入模块名与导入函数名
+					szAsm.Replace(m_Table[i].ImportFunctionAddress[x] + TEXT("h"), 
+						m_Table[i].ImportModuleName[x] + CString(".") + m_Table[i].ImportFunctionName[x]);
+
+					m_BeAanlyAddress.push_back({ szAddress, m_Table[i].ImportFunctionAddress[x],BeAanlyAddressFlag ,
+						m_Table[i].ImportModuleName[x] + CString(".") + m_Table[i].ImportFunctionName[x] });
+
+					return szAsm;
+				}
+
+				//以免数组越界
+				if (m_Table[i].ThunkAdress.size() >= x)
+				{
+					//在汇编代码里查找是否有 FirstThunk 指向的结构体数组中每个结构体的内存地址
+					nIndex = szAsm.Find(m_Table[i].ThunkAdress[x]);
+					//如果有
+					if (nIndex != -1)
+					{
+						szAsm.Replace(m_Table[i].ThunkAdress[x] + TEXT("h"), 
+							m_Table[i].ImportModuleName[x] + CString(".") + m_Table[i].ImportFunctionName[x]);
+
+						m_BeAanlyAddress.push_back({ szAddress, m_Table[i].ThunkAdress[x],BeAanlyAddressFlag ,
+							m_Table[i].ImportModuleName[x] + CString(".") + m_Table[i].ImportFunctionName[x] });
+
+						return szAsm;
+					}
+				}
+
+			}
+
+			break;
+		}
+	}
+
+	return szAsm;
 }
 
 DWORD CXB32DbgDlg::IsHardBreakPoint(DWORD nBreakAddress)
@@ -2088,8 +2278,8 @@ VOID CXB32DbgDlg::WriteMemoryByte(DWORD nAddress, BYTE nValue)
 {
 	DWORD nOldProtect;
 	DWORD nWriteSize;
-	//修改页属性为可读可写可执行
-	VirtualProtectEx(m_ProcessHandle, (LPVOID)nAddress, 1, PAGE_EXECUTE_READWRITE, &nOldProtect);
+	//修改页属性为可读可写
+	VirtualProtectEx(m_ProcessHandle, (LPVOID)nAddress, (SIZE_T)1, PAGE_READWRITE, &nOldProtect);
 	//修改数据
 	WriteProcessMemory(m_ProcessHandle, (LPVOID)nAddress, &nValue, 1, &nWriteSize);
 	//恢复页属性
@@ -2189,11 +2379,10 @@ VOID CXB32DbgDlg::PrintOnceAsm(DWORD nReadAddress)
 
 		PrintBreakFlag((DWORD)disAsm.VirtualAddr, i);
 		nAddr.Format(TEXT("%08X"), disAsm.VirtualAddr);
-		m_list_asm.SetItemText(i, m_Flag_Address, nAddr);
+		m_list_asm.SetItemText(i, m_Flag_Address, ShowExportName(nAddr));
 
 		ShowOpcode((BYTE*)disAsm.EIP, nLen, i);
-		USES_CONVERSION;
-		m_list_asm.SetItemText(i, m_Flag_Asm, A2W(disAsm.CompleteInstr));
+		m_list_asm.SetItemText(i, m_Flag_Asm, ShowAsmName(nAddr, CString(disAsm.CompleteInstr)));
 
 
 		disAsm.EIP += nLen;
@@ -2980,11 +3169,33 @@ void CXB32DbgDlg::OnChangeasm()
 	//根据行数获取对应的地址与十六进制数据
 	nOpcode = m_list_asm.GetItemText(nItem, m_Flag_Opcode);
 	nAddress = m_list_asm.GetItemText(nItem, m_Flag_Address);
+	//过滤掉地址后面可能出现的符号
+	nAddress = nAddress.Left(8);
 	//地址进行转换
 	_stscanf_s(nAddress, TEXT("%X"), &g_SendAddress_Asm);
 
 	//获取对应的汇编指令
 	g_SendAsm_Asm = m_list_asm.GetItemText(nItem, m_Flag_Asm);
+
+	//看看汇编指令是否已经被解析成符号
+	for (DWORD i = 0; i < m_BeAanlyAddress.size(); i++)
+	{
+		if (nAddress == m_BeAanlyAddress[i].nAddress)
+		{
+			//在汇编代码里查找是否有符号
+			INT nIndex = g_SendAsm_Asm.Find(m_BeAanlyAddress[i].Symbol);
+			//查找到了符号
+			if (nIndex != -1)
+			{
+				//直接将汇编代码内的符号替换为之前的地址
+				g_SendAsm_Asm.Replace(m_BeAanlyAddress[i].Symbol, m_BeAanlyAddress[i].nBeAnalyzedAddress+_T("h"));
+
+			}
+			break;
+		}
+	}
+
+
 	//获取汇编指令对应十六进制的长度
 	g_SendBytesNum_Asm = nOpcode.Replace(TEXT(" "), TEXT(" "));
 
@@ -3193,6 +3404,193 @@ VOID CXB32DbgDlg::EditMemoryProc(DWORD nItem, DWORD nSubItem)
 	ShowMemory(dwAddress);
 }
 
+BOOL CXB32DbgDlg::IsJumpWord(CString nStr, CString nAddress, LPDWORD pAddress)
+{
+	DWORD nTempAddress = 0;
+
+	//如果是call指令或j开头的指令
+	if (nStr.Left(4) == CString("call") || nStr.Left(1) == CString("j"))
+	{
+		//看看汇编指令是否已经被解析成符号
+		for (DWORD i = 0; i < m_BeAanlyAddress.size(); i++)
+		{
+			if (nAddress == m_BeAanlyAddress[i].nAddress)
+			{		
+				if (m_BeAanlyAddress[i].bFlag)
+				{
+					_stscanf_s(m_BeAanlyAddress[i].nBeAnalyzedAddress, TEXT("%x"), pAddress);
+				}
+				else
+				{
+					_stscanf_s(m_BeAanlyAddress[i].nBeAnalyzedAddress, TEXT("%x"), &nTempAddress);
+					//从内存中获取要跳转的地址
+					ReadMemoryBytes(nTempAddress, (LPBYTE)pAddress, 4);
+				}
+
+				break;
+			}
+		}
+		//如果没有被解析成符号
+		if (*pAddress == 0)
+		{
+			//去除指令中的h(为了去掉地址后面的h,如果自身指令带h,不好意思，那么此处就是个bug)
+			nStr.Replace(TEXT("h"), TEXT(""));
+
+			//如果要跳转的地址是直接的(不需要再从内存中读取)
+			if (nStr.Find(TEXT("[")) == -1)
+			{
+				//获取指令的后8位，将其作为要跳转的地址
+				nStr = nStr.Right(8);
+				_stscanf_s(nStr, TEXT("%x"), pAddress);
+			}
+			//如果要跳转的地址存放在内存中
+			else
+			{
+				//去除指令中的[与]
+				nStr.Replace(TEXT("["), TEXT(""));
+				nStr.Replace(TEXT("]"), TEXT(""));
+				//获取指令的后8位，将其视为存放要跳转地址的地址
+				nStr = nStr.Right(8);
+				_stscanf_s(nStr, TEXT("%x"), &nTempAddress);
+				//从内存中获取要跳转的地址
+				ReadMemoryBytes(nTempAddress, (LPBYTE)pAddress, 4);
+			}
+		}
+
+		return TRUE;
+	}
+
+	return FALSE;
+}
+
+void CXB32DbgDlg::OnInaddress()
+{
+	CString nTempAddress;
+	CString nRecordAddress;
+	DWORD nReadAddress = 0;
+	
+	//获取选定的项的地址与汇编指令
+	nRecordAddress = m_list_asm.GetItemText(m_list_asm.GetSelectionItem(), m_Flag_Address);
+	//过滤掉地址后面可能出现的符号
+	nRecordAddress = nRecordAddress.Left(8);
+
+	nTempAddress = m_list_asm.GetItemText(m_list_asm.GetSelectionItem(), m_Flag_Asm);
+
+	//如果是call指令或者j开头的指令，就提取其中的地址
+	if (IsJumpWord(nTempAddress, nRecordAddress, &nReadAddress))
+	{
+		//根据提取出的地址显示在列表上
+		InitAsm(nReadAddress);
+		m_list_asm.SetSelectionEx(0);
+	}
+
+}
+
+void CXB32DbgDlg::FunDbg()
+{
+	if (m_bChecked_AntiPeb)
+	{
+		//获取PEB地址
+		DWORD nPebAddress = GetPebAddress(m_ProcessHandle);
+
+		//调试标记位BeingDebugged,可用IsDebuggerPresent()检测，其值为1则处于调试状态
+		//将其改为0,过反调试
+		WriteMemoryByte(nPebAddress + 0x02, '\0');
+
+		//内核全局标记，当进程处于调试状态时值为0x70,非调试状态为0x0
+		//将其改为0，过反调试
+		WriteMemoryByte(nPebAddress + 0x068, '\0');
+	}
+
+	if (m_bChecked_AntiNtQInforPro)
+	{
+
+		DWORD nApiAddress;
+		DWORD nHookCodeAddress;
+
+		BYTE nJmpCode[5] = { 0xe9,0x0,0x0 ,0x0 ,0x0 };
+
+		//00C71816 | 8B4424 08		| mov eax, dword ptr ss : [esp + 8] |	获取NtQueryInformationProcess第二个参数
+		//00C7181A | 83F8 07		| cmp eax, 7						|	判断是不是获取调试端口
+		//00C7181D | 75 0D			| jne demo.C7182C					|
+		//00C7181F | 8B4424 0C		| mov eax, dword ptr ss : [esp + C] |	如果是获取调试端口
+		//00C71823 | C700 00000000	| mov dword ptr ds : [eax], 0		|	将其设为0
+		//00C71829 | C2 1400		| ret 14							|	返回
+		//00C7182C | 83F8 1E		| cmp eax, 1E						|	判断是不是获取调试句柄
+		//00C7182F | 75 0D			| jne demo.C7183E					|
+		//00C71831 | 8B4424 0C		| mov eax, dword ptr ss : [esp + C] |
+		//00C71835 | C700 00000000	| mov dword ptr ds : [eax], 0		|
+		//00C7183B | C2 1400		| ret 14							|
+		//00C7183E | 83F8 1F		| cmp eax, 1F						|	判断是不是获取调试标记
+		//00C71841 | 8B4424 0C		| mov eax, dword ptr ss : [esp + C] |
+		//00C71845 | C700 01000000	| mov dword ptr ds : [eax], 1		|
+		//00C7184B | C2 1400		| ret 14							|
+
+		BYTE nHookCode[] = {0x8B ,0x44,0x24,0x08,0x83,0xF8,0x07,0x75,0x0D,0x8B,
+			0x44,0x24,0x0C,0xC7,0x00,0x00,0x00,0x00,0x00,0xC2,0x14,0x00,0x83,
+			0xF8,0x1E,0x75,0x0D,0x8B,0x44,0x24,0x0C,0xC7,0x00,0x00,0x00,0x00,
+			0x00,0xC2,0x14,0x00,0x83,0xF8,0x1F,0x8B,0x44,0x24,0x0C,0xC7,0x00,
+			0x01,0x00,0x00,0x00,0xC2,0x14,0x00 };
+
+		//获取函数地址
+		nApiAddress = GetApiAddress(TEXT("NtQueryInformationProcess"));
+
+		//在被调试进程申请一块空间并将shellcode写进去
+		nHookCodeAddress = (DWORD)VirtualAllocEx(m_ProcessHandle, NULL, 1, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+		WriteMemoryBytes(nHookCodeAddress, nHookCode, _countof(nHookCode));
+
+		//获取跳转偏移构造跳转指令   跳转偏移  = 目标地址 - 指令所在- 指令长度
+		*(DWORD*)(nJmpCode + 1) = nHookCodeAddress - nApiAddress - 5;
+
+		WriteMemoryBytes(nApiAddress, nJmpCode, _countof(nJmpCode));
+	}
+}
+
+DWORD CXB32DbgDlg::GetPebAddress(HANDLE nHandle)
+{
+	PROCESS_BASIC_INFORMATION32 pbi = { 0 };
+	NTSTATUS Status = NtQueryInformationProcess(
+		nHandle,
+		ProcessBasicInformation,
+		&pbi,
+		sizeof(pbi),
+		NULL);
+
+	if (NT_SUCCESS(Status))
+	{
+		return pbi.PebBaseAddress;
+	}
+	return 0;
+}
+
+DWORD CXB32DbgDlg::GetApiAddress(CString nApi)
+{
+	HMODULE nHandle = nullptr;
+	DWORD nAddress = 0;
+
+	nHandle = GetModuleHandle(TEXT("kernel32.dll"));
+	nAddress = (DWORD)GetProcAddress(nHandle, CStringA(nApi));
+	if (nAddress)return nAddress;
+	FreeLibrary(nHandle);
+
+	nHandle = GetModuleHandle(TEXT("user32.dll"));
+	nAddress = (DWORD)GetProcAddress(nHandle, CStringA(nApi));
+	if (nAddress)return nAddress;
+	FreeLibrary(nHandle);
+
+	nHandle = GetModuleHandle(TEXT("gdi32.dll"));
+	nAddress = (DWORD)GetProcAddress(nHandle, CStringA(nApi));
+	if (nAddress)return nAddress;
+	FreeLibrary(nHandle);
+
+	nHandle = GetModuleHandle(TEXT("ntdll.dll"));
+	nAddress = (DWORD)GetProcAddress(nHandle, CStringA(nApi));
+	if (nAddress)return nAddress;
+	FreeLibrary(nHandle);
+
+	return 0;
+}
+
 //步入
 void CXB32DbgDlg::OnIn()
 {
@@ -3373,6 +3771,8 @@ void CXB32DbgDlg::OnConditionsoftbreak()
 	nSelect = m_list_asm.GetSelectionItem();
 	//获取断点地址
 	nTempAddress = m_list_asm.GetItemText(nSelect, m_Flag_Address);
+	//过滤掉地址后面可能出现的符号
+	nTempAddress = nTempAddress.Left(8);
 	_stscanf_s(nTempAddress, TEXT("%08X"), &nBreakAddress);
 
 	//检测是否已经是断点
@@ -3418,6 +3818,8 @@ void CXB32DbgDlg::OnHardbreak()
 	nSelect = m_list_asm.GetSelectionItem();
 	//获取断点地址
 	nTempAddress = m_list_asm.GetItemText(nSelect, m_Flag_Address);
+	//过滤掉地址后面可能出现的符号
+	nTempAddress = nTempAddress.Left(8);
 	_stscanf_s(nTempAddress, TEXT("%08X"), &nBreakAddress);
 
 	//检测是否已经是断点
@@ -3461,6 +3863,8 @@ void CXB32DbgDlg::OnConditionhardbreak()
 	nSelect = m_list_asm.GetSelectionItem();
 	//获取断点地址
 	nTempAddress = m_list_asm.GetItemText(nSelect, m_Flag_Address);
+	//过滤掉地址后面可能出现的符号
+	nTempAddress = nTempAddress.Left(8);
 	_stscanf_s(nTempAddress, TEXT("%08X"), &nBreakAddress);
 
 	//检测是否已经是断点
@@ -3508,6 +3912,8 @@ void CXB32DbgDlg::OnMemoryBreak()
 	nSelect = m_list_asm.GetSelectionItem();
 	//获取断点地址
 	nTempAddress = m_list_asm.GetItemText(nSelect, m_Flag_Address);
+	//过滤掉地址后面可能出现的符号
+	nTempAddress = nTempAddress.Left(8);
 	_stscanf_s(nTempAddress, TEXT("%08X"), &nBreakAddress);
 
 	//检测是否已经是断点
@@ -3912,6 +4318,8 @@ void CXB32DbgDlg::OnGotoAsm()
 	//获取当前选定项的地址
 	CString szAddress;
 	szAddress = m_list_asm.GetItemText(nSelect, m_Flag_Address);
+	//过滤掉地址后面可能出现的符号
+	szAddress = szAddress.Left(8);
 	_stscanf_s(szAddress, TEXT("%X"), &g_SendAddress_Asm);
 
 	g_Ok_Asm = FALSE;
@@ -3948,7 +4356,6 @@ void CXB32DbgDlg::OnShowImportExportedTable()
 	nTableDlg->ShowWindow(TRUE);
 }
 
-
 void CXB32DbgDlg::OnTimer(UINT_PTR nIDEvent)
 {
 	// TODO: 在此添加消息处理程序代码和/或调用默认值
@@ -3961,3 +4368,54 @@ void CXB32DbgDlg::OnTimer(UINT_PTR nIDEvent)
 
 	CDialogEx::OnTimer(nIDEvent);
 }
+
+//拦截消息
+BOOL CXB32DbgDlg::PreTranslateMessage(MSG* pMsg)
+{
+	// TODO: 在此添加专用代码和/或调用基类
+
+	//如果按下回车键
+	if (pMsg->message == WM_KEYDOWN && pMsg->wParam == VK_RETURN)
+	{
+		if (pMsg->hwnd == m_list_asm.m_hWnd)OnInaddress();
+		return FALSE;
+	}
+
+	return CDialogEx::PreTranslateMessage(pMsg);
+}
+
+void CXB32DbgDlg::OnAntiNtQueryInformationProcess()
+{
+	// TODO: 在此添加命令处理程序代码
+	m_bChecked_AntiNtQInforPro = !m_bChecked_AntiNtQInforPro;
+}
+
+void CXB32DbgDlg::OnAntiPeb()
+{
+	// TODO: 在此添加命令处理程序代码
+	m_bChecked_AntiPeb = !m_bChecked_AntiPeb;
+}
+
+void CXB32DbgDlg::OnInitMenuPopup(CMenu* pPopupMenu, UINT nIndex, BOOL bSysMenu)
+{
+	CDialogEx::OnInitMenuPopup(pPopupMenu, nIndex, bSysMenu);
+
+	// TODO: 在此处添加消息处理程序代码
+
+	if (!bSysMenu) {
+		//查看弹出菜单中是否包含 选中的项。
+		int nCount = pPopupMenu->GetMenuItemCount();
+		for (int i = 0; i < nCount; i++)
+		{
+			if (pPopupMenu->GetMenuItemID(i) == ID_32809)
+			{
+				pPopupMenu->CheckMenuItem(ID_32809, MF_BYCOMMAND | (m_bChecked_AntiPeb ? MF_CHECKED : MF_UNCHECKED));
+			}
+			if (pPopupMenu->GetMenuItemID(i) == ID_32810)
+			{
+				pPopupMenu->CheckMenuItem(ID_32810, MF_BYCOMMAND | (m_bChecked_AntiNtQInforPro ? MF_CHECKED : MF_UNCHECKED));
+			}
+		}
+	}
+}
+

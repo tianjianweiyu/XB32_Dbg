@@ -1,0 +1,5 @@
+LIBRARY	DebugPluginC++.dll ; 说明dll的名字
+EXPORTS ; 说明开始导出函数
+InitPlugin @ 1 ;
+CreateProcessEvent @ 2 ;
+CreateThreadEvent @ 3 ;

@@ -11,12 +11,9 @@
 #pragma comment (lib , "BeaEngine_4.1/Win32/Win32/Lib/BeaEngine.lib")
 #pragma comment(linker, "/NODEFAULTLIB:\"crt.lib\"")
 
-
-#include <vector>
 #include "ClistCtrlEx.h"
 #include "MyHead.h"
-
-using std::vector;
+#include "LoadPlugin.h"
 
 //附加进程的ID消息
 #define WM_AttachProcessId WM_USER+100
@@ -135,6 +132,15 @@ typedef struct _BREAKREADWRITE
 	DWORD nIsHardOrMem;	//硬件断点与内存断点区别标志，为1是硬件,2是内存
 }BREAKREADWRITE, *PBREAKREADWRITE;
 
+typedef struct _BEANALYZEDADDRESSINFO
+{
+	CString nAddress;	//指令地址
+	CString nBeAnalyzedAddress;	//被解析的地址
+	BOOL bFlag;		//为TRUE时表示被解析的地址就是要跳转的地址，
+					//为FALSE时表示被解析的地址处保存着要跳转的地址
+	CString Symbol;	//被解析成的符号
+}BEANALYZEDADDRESSINFO, *PBEANALYZEDADDRESSINFO;
+
 // CXB32DbgDlg 对话框
 class CXB32DbgDlg : public CDialogEx
 {
@@ -213,7 +219,6 @@ public:
 	COLORREF COLOR_GREEN = RGB(0, 178, 102);
 	COLORREF COLOR_BLUE = RGB(51, 153, 255);
 
-
 	//反汇编窗口列数
 	DWORD m_Flag_Break = 0;
 	DWORD m_Flag_Address = 1;
@@ -238,6 +243,16 @@ public:
 	vector<TABLE> m_Table;
 	//计时器标识符
 	DWORD TABLECLOCK = 0x999;
+
+	//反反调试菜单下的按键是否被选定的标志
+	BOOL m_bChecked_AntiPeb = FALSE;
+	BOOL m_bChecked_AntiNtQInforPro = FALSE;
+
+	//插件
+	LoadPlugin m_LoadPlugin;
+
+	//保存被解析成符号的地址
+	vector<BEANALYZEDADDRESSINFO> m_BeAanlyAddress;
 
 	afx_msg void OnCreateProcess();
 	afx_msg void OnDebugActiveProcess();
@@ -292,6 +307,23 @@ public:
 	*  功    能： 设置List控件属性
 	*/
 	VOID SetListAttr();
+
+	/*!
+	*  函 数 名： SetPluginMenu
+	*  日    期： 2020/06/17
+	*  返回类型： VOID
+	*  功    能： 设置插件菜单名字
+	*/
+	VOID SetPluginMenu();
+
+	/*!
+	*  函 数 名： LoadSymbol
+	*  日    期： 2020/06/17
+	*  返回类型： BOOL
+	*  参    数： CREATE_PROCESS_DEBUG_INFO * pInfo 创建进程调试结构体
+	*  功    能： 载入符号文件
+	*/
+	BOOL LoadSymbol(CREATE_PROCESS_DEBUG_INFO* pInfo);
 
 	/*!
 	*  函 数 名： DispatchEvent
@@ -395,6 +427,25 @@ public:
 	*  功    能：  将需要高亮的数据信息存入动态数组中
 	*/
 	VOID SetItemColor(DWORD Item, DWORD SubItem, COLORREF TextColor, COLORREF BkColor, DWORD Flag);
+
+	/*!
+	*  函 数 名： ShowExportName
+	*  日    期： 2020/06/17
+	*  返回类型： CString
+	*  参    数： CString szAddress 地址
+	*  功    能： 遍历地址中的符号
+	*/
+	CString ShowExportName(CString szAddress);
+
+	/*!
+	*  函 数 名： ShowAsmName
+	*  日    期： 2020/06/17
+	*  返回类型： CString
+	*  参    数： CString szAddress Asm代码所在地址
+	*  参    数： CString szAsm Asm代码
+	*  功    能： 遍历显示Asm代码中的符号
+	*/
+	CString ShowAsmName(CString szAddress, CString szAsm);
 
 	/*!
 	*  函 数 名： IsHardBreakPoint
@@ -863,6 +914,51 @@ public:
 	*/
 	VOID EditMemoryProc(DWORD nItem, DWORD nSubItem);
 
+	/*!
+	*  函 数 名： IsJumpWord
+	*  日    期： 2020/06/17
+	*  返回类型： BOOL	如果是返回TRUE,并且将要跳转到的地址赋给 pAddress ,如果不是返回FALSE
+	*  参    数： CString nStr 汇编指令
+	*  参    数： CString nAddress 汇编指令所在的地址
+	*  参    数： LPDWORD pAddress 用于接收要跳转到的地址
+	*  功    能： 检测是否为跳转指令(检测指令前四位是否为call或前一位是否为j)
+	*/
+	BOOL IsJumpWord(CString nStr, CString nAddress ,LPDWORD pAddress);
+
+	/*!
+	*  函 数 名： OnInaddress
+	*  日    期： 2020/06/15
+	*  返回类型： void
+	*  功    能： 如果是带地址的跳转指令，就跳转到地址处
+	*/
+	void OnInaddress();
+
+	/*!
+	*  函 数 名： FunDbg
+	*  日    期： 2020/06/16
+	*  返回类型： void
+	*  功    能： 反反调试
+	*/
+	void FunDbg();
+
+	/*!
+	*  函 数 名： GetPebAddress
+	*  日    期： 2020/06/16
+	*  返回类型： DWORD
+	*  参    数： HANDLE nHandle 目标进程句柄
+	*  功    能： 获取指定进程的PEB地址
+	*/
+	DWORD GetPebAddress(HANDLE nHandle);
+
+	/*!
+	*  函 数 名： GetApiAddress
+	*  日    期： 2020/06/16
+	*  返回类型： DWORD
+	*  参    数： CString nApi Api名字
+	*  功    能： 取出指定Api地址
+	*/
+	DWORD GetApiAddress(CString nApi);
+
 	afx_msg void OnIn();
 	afx_msg void OnJump();
 	afx_msg void OnRun();
@@ -895,4 +991,8 @@ public:
 	afx_msg void OnShowModule();
 	afx_msg void OnShowImportExportedTable();
 	afx_msg void OnTimer(UINT_PTR nIDEvent);
+	virtual BOOL PreTranslateMessage(MSG* pMsg);
+	afx_msg void OnAntiNtQueryInformationProcess();
+	afx_msg void OnAntiPeb();
+	afx_msg void OnInitMenuPopup(CMenu* pPopupMenu, UINT nIndex, BOOL bSysMenu);
 };

@@ -80,13 +80,16 @@
 #define ID_32806                        32806
 #define ID_32807                        32807
 #define ID_32808                        32808
+#define ID_32809                        32809
+#define ID_32810                        32810
+#define ID_32811                        32811
 
 // Next default values for new objects
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        150
-#define _APS_NEXT_COMMAND_VALUE         32809
+#define _APS_NEXT_COMMAND_VALUE         32812
 #define _APS_NEXT_CONTROL_VALUE         1048
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
