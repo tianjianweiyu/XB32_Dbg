@@ -147,6 +147,7 @@ class CXB32DbgDlg : public CDialogEx
 // 构造
 public:
 	CXB32DbgDlg(CWnd* pParent = nullptr);	// 标准构造函数
+	~CXB32DbgDlg();
 
 // 对话框数据
 #ifdef AFX_DESIGN_TIME
@@ -253,6 +254,9 @@ public:
 
 	//保存被解析成符号的地址
 	vector<BEANALYZEDADDRESSINFO> m_BeAanlyAddress;
+
+	//定义一个临界区结构体对象
+	CRITICAL_SECTION m_CS;
 
 	afx_msg void OnCreateProcess();
 	afx_msg void OnDebugActiveProcess();
@@ -443,7 +447,7 @@ public:
 	*  返回类型： CString
 	*  参    数： CString szAddress Asm代码所在地址
 	*  参    数： CString szAsm Asm代码
-	*  功    能： 遍历显示Asm代码中的符号
+	*  功    能： 遍历显示Asm代码中的符号		(有问题，待解决)
 	*/
 	CString ShowAsmName(CString szAddress, CString szAsm);
 
@@ -995,4 +999,5 @@ public:
 	afx_msg void OnAntiNtQueryInformationProcess();
 	afx_msg void OnAntiPeb();
 	afx_msg void OnInitMenuPopup(CMenu* pPopupMenu, UINT nIndex, BOOL bSysMenu);
+	afx_msg void OnBreaklist();
 };

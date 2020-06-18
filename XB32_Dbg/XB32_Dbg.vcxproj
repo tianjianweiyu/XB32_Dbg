@@ -192,6 +192,7 @@
     </ResourceCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="BreakListDlg.h" />
     <ClInclude Include="CAttach.h" />
     <ClInclude Include="ClistCtrlEx.h" />
     <ClInclude Include="ConditionBreakDlg.h" />
@@ -212,6 +213,7 @@
     <ClInclude Include="XB32_DbgDlg.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="BreakListDlg.cpp" />
     <ClCompile Include="CAttach.cpp" />
     <ClCompile Include="ClistCtrlEx.cpp" />
     <ClCompile Include="ConditionBreakDlg.cpp" />

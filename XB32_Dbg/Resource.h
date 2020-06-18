@@ -18,6 +18,8 @@
 #define IDD_GOTOASM_DIALOG              144
 #define IDD_MODULE_DIALOG               146
 #define IDD_TABLE_DIALOG                148
+#define IDD_DIALOG1                     150
+#define IDD_BREAKLIST_DIALOG            150
 #define IDC_LIST1                       1000
 #define IDC_LIST3                       1002
 #define IDC_LIST4                       1003
@@ -39,6 +41,7 @@
 #define IDC_EDIT4                       1047
 #define IDC_STATIC_TABLE                1047
 #define IDC_EDIT5                       1048
+#define IDC_LIST_BREAKLIST              1048
 #define IDC_EDIT6                       1049
 #define IDC_EDIT7                       1050
 #define IDC_EDIT8                       1051
@@ -83,14 +86,15 @@
 #define ID_32809                        32809
 #define ID_32810                        32810
 #define ID_32811                        32811
+#define ID_32812                        32812
 
 // Next default values for new objects
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        150
-#define _APS_NEXT_COMMAND_VALUE         32812
-#define _APS_NEXT_CONTROL_VALUE         1048
+#define _APS_NEXT_RESOURCE_VALUE        152
+#define _APS_NEXT_COMMAND_VALUE         32813
+#define _APS_NEXT_CONTROL_VALUE         1049
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif
