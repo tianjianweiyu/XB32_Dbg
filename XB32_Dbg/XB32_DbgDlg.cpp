@@ -1928,6 +1928,7 @@ CString CXB32DbgDlg::ShowExportName(CString szAddress)
 	return szAddress;
 }
 
+//有问题////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 CString CXB32DbgDlg::ShowAsmName(CString szAddress, CString szAsm)
 {
 	//::EnterCriticalSection(&m_CS);	//进入临界区
@@ -1999,6 +2000,7 @@ CString CXB32DbgDlg::ShowAsmName(CString szAddress, CString szAsm)
 
 	return szAsm;
 }
+//有问题////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 DWORD CXB32DbgDlg::IsHardBreakPoint(DWORD nBreakAddress)
 {
