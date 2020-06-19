@@ -141,14 +141,11 @@ CXB32DbgDlg::CXB32DbgDlg(CWnd* pParent /*=nullptr*/)
 {
 	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
 
-	//初始化临界区
-	::InitializeCriticalSection(&m_CS);
 }
 
 CXB32DbgDlg::~CXB32DbgDlg()
 {
-	//删除临界区
-	::DeleteCriticalSection(&m_CS);
+
 }
 
 void CXB32DbgDlg::DoDataExchange(CDataExchange* pDX)
@@ -283,6 +280,14 @@ LRESULT CALLBACK ListAsmProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 			//空格键-编辑汇编指令
 		case VK_SPACE:
 			g_pDlg->OnChangeasm();
+			break;
+			//“-”键
+		case VK_OEM_MINUS:
+			g_pDlg->BackSelectRecord();
+			break;
+			//“+”键
+		case VK_OEM_PLUS:
+			g_pDlg->ComeSelectRecord();
 			break;
 		}
 	}
@@ -1204,6 +1209,12 @@ DWORD CXB32DbgDlg::DispatchEvent()
 		//反反调试
 		FunDbg();
 
+		//从文件中提取断点信息
+		ReadAllBreakInfo();
+
+		//还原硬件软件断点
+		RecoveryAllBreakInfo();
+
 		//调用插件CreateProcessEvent接口
 		m_LoadPlugin.CallCreateProcessEvent((DWORD)m_dbgEvent.dwProcessId, (DWORD)m_dbgEvent.dwThreadId);
 
@@ -1218,6 +1229,10 @@ DWORD CXB32DbgDlg::DispatchEvent()
 			{
 				SetBreakPoint(GetOepAddressEx((DWORD)m_dbgEvent.u.CreateProcessInfo.lpBaseOfImage), FALSE, {});
 			}
+		}
+		else
+		{
+			InitInformation();
 		}
 		resContinueStaus = DBG_CONTINUE;
 
@@ -1488,7 +1503,7 @@ BOOL CXB32DbgDlg::Open(DWORD nPid)
 		return FALSE;
 	}
 
-	if (!DebugActiveProcess(m_nPid))
+	if (!DebugActiveProcess(nPid))
 	{
 		::MessageBox(NULL, _T("调试进程失败！"), _T("提示"), MB_ICONERROR);
 	}
@@ -1688,6 +1703,25 @@ VOID CXB32DbgDlg::InitInformationEx(DWORD nImageBase)
 	//显示内存数据
 	ShowMemory(nImageBase);
 	//选中列表第一行并高亮
+	m_list_asm.SetSelectionEx(0);
+}
+
+VOID CXB32DbgDlg::InitInformation()
+{
+
+	DWORD nTid = GetProcessThreadId(m_nPid);
+	m_ThreadHandle = OpenThread(THREAD_ALL_ACCESS, FALSE, nTid);
+	if (m_ProcessHandle == nullptr)MessageBox(TEXT("打开线程失败！"), TEXT("提示"), MB_ICONERROR);
+
+	HMODULE nHmodule[255]{};
+	DWORD nNeedSize;
+	BYTE nProcessBuff[1024]{};
+	//获取被调试进程中所有模块的句柄
+	EnumProcessModules(m_ProcessHandle, nHmodule, 255, &nNeedSize);
+
+	InitAsm(GetOepAddressEx((DWORD)nHmodule[0]));
+	//显示内存数据
+	ShowMemory((DWORD)nHmodule[0]);
 	m_list_asm.SetSelectionEx(0);
 }
 
@@ -3470,6 +3504,8 @@ void CXB32DbgDlg::OnInaddress()
 	//如果是call指令或者j开头的指令，就提取其中的地址
 	if (IsJumpWord(nTempAddress, nRecordAddress, &nReadAddress))
 	{
+		//保存跳转记录
+		AddSelectRecord();
 		//根据提取出的地址显示在列表上
 		InitAsm(nReadAddress);
 		m_list_asm.SetSelectionEx(0);
@@ -3581,6 +3617,116 @@ DWORD CXB32DbgDlg::GetApiAddress(CString nApi)
 
 	return 0;
 }
+
+VOID CXB32DbgDlg::ReadAllBreakInfo()
+{
+	HANDLE  pFile = nullptr;
+
+	//获取被调试进程名
+	USES_CONVERSION;
+	CHAR* pszFileName = T2A(m_strFilePath);
+	PathStripPathA(pszFileName);
+
+	//获取调试器所在的目录
+	TCHAR pszFileDir[MAX_PATH] = { 0 };
+	GetModuleFileName(NULL, pszFileDir, MAX_PATH);
+	(_tcsrchr(pszFileDir, '\\'))[0] = 0;
+
+	pFile = CreateFile(pszFileDir + CString(pszFileName) + TEXT("_HardBreakInfo.dat"), 
+		GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (pFile != (HANDLE)-1)
+	{
+		DWORD nSize = GetFileSize((PHANDLE)pFile, 0);
+		DWORD nReadSize = 0;
+		ReadFile(pFile, (LPVOID)m_HardBreakPoint, nSize, &nReadSize, NULL);
+	}
+	CloseHandle(pFile);
+
+
+	pFile = CreateFile(pszFileDir + CString(pszFileName) + TEXT("_SoftBreakInfo.dat"),
+		GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (pFile != (HANDLE)-1)
+	{
+		DWORD nSize = GetFileSize((PHANDLE)pFile, 0);
+		DWORD nCount = nSize / sizeof(BREAKPOINT);
+		DWORD nReadSize = 0;
+		BREAKPOINT *nBreakPoint = new BREAKPOINT[nCount]{};
+		ReadFile(pFile, nBreakPoint, nSize, &nReadSize, NULL);
+
+		for (DWORD i = 0; i < nCount; i++)
+		{
+			m_BreakPoint.push_back(nBreakPoint[i]);
+		}
+		delete[]nBreakPoint;
+	}
+	CloseHandle(pFile);
+}
+
+VOID CXB32DbgDlg::WriteAllBreakInfo()
+{
+	FILE *pFile = nullptr;
+	//获取被调试进程名
+	USES_CONVERSION;
+	CHAR* pszFileName = T2A(m_strFilePath);
+	PathStripPathA(pszFileName);
+
+	//获取调试器所在的目录
+	TCHAR pszFileDir[MAX_PATH] = { 0 };
+	GetModuleFileName(NULL, pszFileDir, MAX_PATH);
+	(_tcsrchr(pszFileDir, '\\'))[0] = 0;
+
+	fopen_s(&pFile, pszFileDir + CString(pszFileName) + "_HardBreakInfo.dat", "wb");
+	fwrite(m_HardBreakPoint, sizeof(HARDBREAKPOINT), 4, pFile);
+	fclose(pFile);
+
+
+	DWORD nCount = m_BreakPoint.size();
+	BREAKPOINT *nBreakPoint = new BREAKPOINT[nCount]{};
+	for (DWORD i = 0; i < nCount; i++)
+	{
+		memcpy_s(&nBreakPoint[i], sizeof(BREAKPOINT), &m_BreakPoint[i], sizeof(BREAKPOINT));
+	}
+
+	fopen_s(&pFile, pszFileDir + CString(pszFileName) + "_SoftBreakInfo.dat", "wb");
+	fwrite(nBreakPoint, sizeof(BREAKPOINT), nCount, pFile);
+	fclose(pFile);
+	delete[]nBreakPoint;
+}
+
+VOID CXB32DbgDlg::RecoveryAllBreakInfo()
+{
+	OpenAllBreakPoint();
+	OpenAllHardBreakPoint();
+}
+
+VOID CXB32DbgDlg::AddSelectRecord()
+{
+		m_SelectNum = m_SelectNum + 1;
+		m_RecordAddress.push_back({ nReadAddressFirst ,m_list_asm.GetSelectionItem() });
+
+}
+
+VOID CXB32DbgDlg::BackSelectRecord()
+{
+	if (m_SelectNum == 0)return;
+
+	m_SelectNum = m_SelectNum - 1;
+
+	InitAsm(m_RecordAddress[m_SelectNum].nAddress);
+	m_list_asm.SetSelectionEx(m_RecordAddress[m_SelectNum].nSelect);
+
+}
+
+VOID CXB32DbgDlg::ComeSelectRecord()
+{
+	if (m_SelectNum  >= m_RecordAddress.size() - 1 )return;
+
+	m_SelectNum = m_SelectNum + 1;
+
+	InitAsm(m_RecordAddress[m_SelectNum].nAddress);
+	m_list_asm.SetSelectionEx(m_RecordAddress[m_SelectNum].nSelect);
+}
+
 
 //步入
 void CXB32DbgDlg::OnIn()
@@ -3746,6 +3892,8 @@ void CXB32DbgDlg::OnSoftbreak()
 		SetItemColor(nSelect, m_Flag_Address, COLOR_BLACK, COLOR_WHITE,AsmBlock);
 	}
 
+	//更新断点信息文件
+	WriteAllBreakInfo();
 }
 
 // 设置软件条件断点
@@ -3792,6 +3940,9 @@ void CXB32DbgDlg::OnConditionsoftbreak()
 		SetItemColor(nSelect, m_Flag_Break, COLOR_BLACK, COLOR_WHITE,AsmBlock);
 		SetItemColor(nSelect, m_Flag_Address, COLOR_BLACK, COLOR_WHITE,AsmBlock);
 	}
+
+	//更新断点信息文件
+	WriteAllBreakInfo();
 }
 
 // 设置硬件断点
@@ -3837,6 +3988,9 @@ void CXB32DbgDlg::OnHardbreak()
 		SetItemColor(nSelect, m_Flag_Break, COLOR_BLACK, COLOR_WHITE,AsmBlock);
 		SetItemColor(nSelect, m_Flag_Address, COLOR_BLACK, COLOR_WHITE,AsmBlock);
 	}
+
+	//更新断点信息文件
+	WriteAllBreakInfo();
 }
 
 // 设置硬件条件断点
@@ -3887,6 +4041,9 @@ void CXB32DbgDlg::OnConditionhardbreak()
 		SetItemColor(nSelect, m_Flag_Break, COLOR_BLACK, COLOR_WHITE,AsmBlock);
 		SetItemColor(nSelect, m_Flag_Address, COLOR_BLACK, COLOR_WHITE,AsmBlock);
 	}
+
+	//更新断点信息文件
+	WriteAllBreakInfo();
 }
 
 // 设置内存执行断点

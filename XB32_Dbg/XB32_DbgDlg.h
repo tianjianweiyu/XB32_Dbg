@@ -141,6 +141,13 @@ typedef struct _BEANALYZEDADDRESSINFO
 	CString Symbol;	//被解析成的符号
 }BEANALYZEDADDRESSINFO, *PBEANALYZEDADDRESSINFO;
 
+typedef struct _SELECTRECORD
+{
+	DWORD nAddress;
+	DWORD nSelect;
+
+}SELECTRECORD, *PSELECTRECORD;
+
 // CXB32DbgDlg 对话框
 class CXB32DbgDlg : public CDialogEx
 {
@@ -255,8 +262,9 @@ public:
 	//保存被解析成符号的地址
 	vector<BEANALYZEDADDRESSINFO> m_BeAanlyAddress;
 
-	//定义一个临界区结构体对象
-	CRITICAL_SECTION m_CS;
+	//保存跳转记录的，用于返回上次跳转的位置
+	vector<SELECTRECORD>m_RecordAddress;
+	DWORD m_SelectNum = 0;
 
 	afx_msg void OnCreateProcess();
 	afx_msg void OnDebugActiveProcess();
@@ -359,9 +367,17 @@ public:
 	*  日    期： 2020/06/06
 	*  返回类型： VOID
 	*  参    数： DWORD nImageBase 加载基址
-	*  功    能： 初始化寄存器,内存信息
+	*  功    能： 初始化寄存器,内存信息(创建调试进程使用)
 	*/
 	VOID InitInformationEx(DWORD nImageBase);
+
+	/*!
+	*  函 数 名： InitInformation
+	*  日    期： 2020/06/18
+	*  返回类型： VOID
+	*  功    能： 初始化寄存器，内存信息(附加调试进程使用)
+	*/
+	VOID InitInformation();
 
 	/*!
 	*  函 数 名： InitAsm
@@ -962,6 +978,54 @@ public:
 	*  功    能： 取出指定Api地址
 	*/
 	DWORD GetApiAddress(CString nApi);
+
+	/*!
+	*  函 数 名： ReadAllBreakInfo
+	*  日    期： 2020/06/18
+	*  返回类型： VOID
+	*  功    能： 从断点信息文件中读取断点信息
+	*/
+	VOID ReadAllBreakInfo();
+
+	/*!
+	*  函 数 名： WriteAllBreakInfo
+	*  日    期： 2020/06/18
+	*  返回类型： VOID
+	*  功    能： 将断点保存到文件中
+	*/
+	VOID WriteAllBreakInfo();
+
+	/*!
+	*  函 数 名： RecoveryAllBreakInfo
+	*  日    期： 2020/06/18
+	*  返回类型： VOID
+	*  功    能： 还原所有断点
+	*/
+	VOID RecoveryAllBreakInfo();
+
+	/*!
+	*  函 数 名： AddSelectRecord
+	*  日    期： 2020/06/19
+	*  返回类型： VOID
+	*  功    能： 添加跳转地址记录
+	*/
+	VOID AddSelectRecord();
+
+	/*!
+	*  函 数 名： BackSelectRecord
+	*  日    期： 2020/06/19
+	*  返回类型： VOID
+	*  功    能： 回到上一次跳转位置
+	*/
+	VOID BackSelectRecord();
+
+	/*!
+	*  函 数 名： ComeSelectRecord
+	*  日    期： 2020/06/19
+	*  返回类型： VOID
+	*  功    能： 回到下一次跳转位置(如果有)
+	*/
+	VOID ComeSelectRecord();
 
 	afx_msg void OnIn();
 	afx_msg void OnJump();

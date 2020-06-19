@@ -157,4 +157,6 @@ void BreakListDlg::OnNMRClickListBreaklist(NMHDR *pNMHDR, LRESULT *pResult)
 	//删除选中的项
 	m_List_Break.DeleteItem(nItem);
 
+	//更新断点信息文件
+	g_pDlg->WriteAllBreakInfo();
 }
