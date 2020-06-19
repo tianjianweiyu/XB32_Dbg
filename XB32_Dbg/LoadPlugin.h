@@ -63,7 +63,7 @@ public:
 	*  返回类型： VOID
 	*  参    数： DWORD nPid 被调试进程ID
 	*  参    数： DWORD nTid 被调试线程ID
-	*  功    能： 调试全部插件的CreateProcessEvent函数,进程创建事件时触发
+	*  功    能： 调试全部插件的CreateProcessEvent函数,触发进程创建事件被调用
 	*/
 	VOID CallCreateProcessEvent(DWORD nPid, DWORD nTid);
 
@@ -73,7 +73,7 @@ public:
 	*  返回类型： VOID
 	*  参    数： DWORD nHandle 导致调试事件的线程的句柄  _CREATE_THREAD_DEBUG_INFO结构体中 hThread 字段值
 	*  参    数： DWORD nThreadLocalBase 指向数据块的指针 _CREATE_THREAD_DEBUG_INFO结构体中 lpThreadLocalBase 字段值;
-	*  功    能： 调试全部插件的CreateThreadEvent函数，线程创建事件时触发
+	*  功    能： 调试全部插件的CreateThreadEvent函数，触发线程创建事件时被调用 
 	*/
 	VOID CallCreateThreadEvent(DWORD nHandle, DWORD nThreadLocalBase);
 

@@ -12,13 +12,13 @@ CHAR* WINAPI InitPlugin()
 	return nRet;
 }
 
-//创建进程时调用的接口(两个参数，调试器会返回进程id和线程id)
+//被调试程序触发进程创建事件被调用(两个参数，调试器会返回进程id和线程id)
 VOID WINAPI CreateProcessEvent(DWORD m_Pid, DWORD m_Tid)
 {
 
 }
 
-//创建线程时调用的接口
+//触发线程程创建事件被调用
 VOID WINAPI CreateThreadEvent(HANDLE nHandle, DWORD nThreadLocalBase)
 {
 
