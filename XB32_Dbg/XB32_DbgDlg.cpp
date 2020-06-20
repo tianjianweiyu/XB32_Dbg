@@ -3634,7 +3634,7 @@ VOID CXB32DbgDlg::ReadAllBreakInfo()
 	GetModuleFileName(NULL, pszFileDir, MAX_PATH);
 	(_tcsrchr(pszFileDir, '\\'))[0] = 0;
 
-	pFile = CreateFile(pszFileDir + CString(pszFileName) + TEXT("_HardBreakInfo.dat"), 
+	pFile = CreateFile(pszFileDir + '\\' + CString(pszFileName) + TEXT("_HardBreakInfo.dat"),
 		GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 	if (pFile != (HANDLE)-1)
 	{
@@ -3645,7 +3645,7 @@ VOID CXB32DbgDlg::ReadAllBreakInfo()
 	CloseHandle(pFile);
 
 
-	pFile = CreateFile(pszFileDir + CString(pszFileName) + TEXT("_SoftBreakInfo.dat"),
+	pFile = CreateFile(pszFileDir + '\\' + CString(pszFileName) + TEXT("_SoftBreakInfo.dat"),
 		GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 	if (pFile != (HANDLE)-1)
 	{
@@ -3677,7 +3677,7 @@ VOID CXB32DbgDlg::WriteAllBreakInfo()
 	GetModuleFileName(NULL, pszFileDir, MAX_PATH);
 	(_tcsrchr(pszFileDir, '\\'))[0] = 0;
 
-	fopen_s(&pFile, pszFileDir + CString(pszFileName) + "_HardBreakInfo.dat", "wb");
+	fopen_s(&pFile, pszFileDir + '\\' + CString(pszFileName) + "_HardBreakInfo.dat", "wb");
 	fwrite(m_HardBreakPoint, sizeof(HARDBREAKPOINT), 4, pFile);
 	fclose(pFile);
 
@@ -3689,7 +3689,7 @@ VOID CXB32DbgDlg::WriteAllBreakInfo()
 		memcpy_s(&nBreakPoint[i], sizeof(BREAKPOINT), &m_BreakPoint[i], sizeof(BREAKPOINT));
 	}
 
-	fopen_s(&pFile, pszFileDir + CString(pszFileName) + "_SoftBreakInfo.dat", "wb");
+	fopen_s(&pFile, pszFileDir + '\\' + CString(pszFileName) + "_SoftBreakInfo.dat", "wb");
 	fwrite(nBreakPoint, sizeof(BREAKPOINT), nCount, pFile);
 	fclose(pFile);
 	delete[]nBreakPoint;
